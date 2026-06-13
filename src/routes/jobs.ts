@@ -19,7 +19,7 @@ const server = new Server(RPC_URL);
 router.get("/:contractId", async (req: Request, res: Response) => {
   try {
     const { contractId } = req.params;
-    const contract = new Contract(contractId);
+    const contract = new Contract(contractId as string);
     const account = await server.getAccount(process.env.DEPLOYER_ADDRESS || "");
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -40,8 +40,8 @@ router.get("/:contractId", async (req: Request, res: Response) => {
 router.post("/build-tx", async (req: Request, res: Response) => {
   try {
     const { contractId, method, args, sourceAddress } = req.body;
-    const contract = new Contract(contractId);
-    const account = await server.getAccount(sourceAddress);
+    const contract = new Contract(contractId as string);
+    const account = await server.getAccount(sourceAddress as string);
 
     const scArgs = (args || []).map((a: any) => {
       if (a.type === "address") return Address.fromString(a.value).toScVal();
@@ -71,7 +71,7 @@ router.post("/submit", async (req: Request, res: Response) => {
   try {
     const { signedXdr } = req.body;
     const { TransactionBuilder: TB } = await import("@stellar/stellar-sdk");
-    const tx = TB.fromXDR(signedXdr, Networks.TESTNET);
+    const tx = TB.fromXDR(signedXdr as string, Networks.TESTNET);
     const result = await server.sendTransaction(tx);
     res.json({ success: true, data: result });
   } catch (err: any) {
