@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import jobRoutes from "./routes/jobs";
+import jobRoutes from "./routes/jobs.js";
 
 dotenv.config();
 
