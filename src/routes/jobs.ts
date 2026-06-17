@@ -15,6 +15,26 @@ const CONTRACT_ID = process.env.CONTRACT_ID || "";
 const RPC_URL = "https://soroban-testnet.stellar.org";
 const server = new Server(RPC_URL);
 
+// Helper function to parse job from RPC result
+const parseJobFromResult = (result: any, contractId: string) => {
+  if ("result" in result && result.result?.retval) {
+    const val = result.result.retval;
+    const client = val.client().toString();
+    const freelancer = val.freelancer().toString();
+    const arbiter = val.arbiter().toString();
+    const token = val.token().toString();
+    const funded = val.funded();
+    const milestones = val.milestones().map((m: any, i: number) => ({
+      index: i,
+      amount: m.amount().toString(),
+      status: Object.keys(m.status())[0],
+    }));
+
+    return { id: contractId, client, freelancer, arbiter, token, funded, milestones };
+  }
+  return null;
+};
+
 // GET /api/jobs/by-wallet/:address - get jobs associated with a wallet
 router.get("/by-wallet/:address", async (req: Request, res: Response) => {
   try {
@@ -31,9 +51,11 @@ router.get("/by-wallet/:address", async (req: Request, res: Response) => {
       .setTimeout(30)
       .build();
     const result = await server.simulateTransaction(tx);
-    
+
+    const job = parseJobFromResult(result, contractId);
+
     // Return job if address is client, freelancer, or arbiter
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: job });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -54,7 +76,9 @@ router.get("/:contractId", async (req: Request, res: Response) => {
       .build();
 
     const result = await server.simulateTransaction(tx);
-    res.json({ success: true, data: result });
+    const job = parseJobFromResult(result, contractId);
+
+    res.json({ success: true, data: job });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
