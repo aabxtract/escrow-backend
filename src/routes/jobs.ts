@@ -9,6 +9,7 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import { getJobsByWallet } from "../indexer/db.js";
 
 const router = Router();
 const CONTRACT_ID = process.env.CONTRACT_ID || "";
@@ -35,27 +36,31 @@ const parseJobFromResult = (result: any, contractId: string) => {
   return null;
 };
 
-// GET /api/jobs/by-wallet/:address - get jobs associated with a wallet
-router.get("/by-wallet/:address", async (req: Request, res: Response) => {
+// GET /api/jobs/by-wallet/:address
+// Returns all jobs (from local SQLite event index) where the address is
+// the client, freelancer, or arbiter.
+// Query params: ?page=1&limit=10
+router.get("/by-wallet/:address", (req: Request, res: Response) => {
   try {
-    const { address } = req.params;
-    // For now, we have a single deployed contract
-    const contractId = CONTRACT_ID;
-    const contract = new Contract(contractId);
-    const deployerAccount = await server.getAccount(process.env.DEPLOYER_ADDRESS || "");
-    const tx = new TransactionBuilder(deployerAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: Networks.TESTNET,
-    })
-      .addOperation(contract.call("get_job"))
-      .setTimeout(30)
-      .build();
-    const result = await server.simulateTransaction(tx);
+    const address = req.params.address as string;
+    const page = parseInt((req.query.page as string) || "1", 10);
+    const limit = parseInt((req.query.limit as string) || "10", 10);
 
-    const job = parseJobFromResult(result, contractId);
+    if (!address || address.trim() === "") {
+      res.status(400).json({ success: false, error: "address is required" });
+      return;
+    }
+    if (isNaN(page) || page < 1) {
+      res.status(400).json({ success: false, error: "page must be a positive integer" });
+      return;
+    }
+    if (isNaN(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ success: false, error: "limit must be between 1 and 100" });
+      return;
+    }
 
-    // Return job if address is client, freelancer, or arbiter
-    res.json({ success: true, data: job });
+    const result = getJobsByWallet(address, page, limit);
+    res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

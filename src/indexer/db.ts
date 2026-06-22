@@ -95,3 +95,98 @@ export function getEventsByAddress(address: string) {
   `);
   return stmt.all(`%${address}%`);
 }
+
+export interface JobSummary {
+  contract_id: string;
+  role: "client" | "freelancer" | "arbiter" | "unknown";
+  milestone_count: number;
+  latest_event_type: string;
+  latest_ledger: number;
+  latest_timestamp: number;
+}
+
+export interface PaginatedJobs {
+  jobs: JobSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/**
+ * Query the SQLite events table for all jobs where `address` appears as
+ * client, freelancer, or arbiter inside data_json.  Events are grouped by
+ * contract_id so each distinct job appears once.  The result is then
+ * paginated using `page` (1-based) and `limit`.
+ */
+export function getJobsByWallet(
+  address: string,
+  page: number = 1,
+  limit: number = 10
+): PaginatedJobs {
+  const db = getDb();
+
+  // Fetch all events that mention this address anywhere in data_json
+  const rows = db
+    .prepare(
+      `SELECT contract_id, event_type, ledger_sequence, timestamp, data_json
+       FROM events
+       WHERE data_json LIKE ?
+       ORDER BY ledger_sequence DESC`
+    )
+    .all(`%${address}%`) as Array<{
+    contract_id: string;
+    event_type: string;
+    ledger_sequence: number;
+    timestamp: number;
+    data_json: string;
+  }>;
+
+  // Group by contract_id, determining role and building a summary
+  const jobMap = new Map<string, JobSummary>();
+
+  for (const row of rows) {
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = JSON.parse(row.data_json) as Record<string, unknown>;
+    } catch {
+      // skip unparseable rows
+      continue;
+    }
+
+    // Only include this row if the address genuinely appears in a role field
+    // (protects against false-positive LIKE matches in other string fields)
+    const roleInRow =
+      parsed["client"] === address
+        ? "client"
+        : parsed["freelancer"] === address
+        ? "freelancer"
+        : parsed["arbiter"] === address
+        ? "arbiter"
+        : null;
+
+    if (!roleInRow) continue;
+
+    if (!jobMap.has(row.contract_id)) {
+      // First (most-recent) event for this contract determines the summary
+      jobMap.set(row.contract_id, {
+        contract_id: row.contract_id,
+        role: roleInRow,
+        milestone_count: Array.isArray(parsed["milestones"])
+          ? (parsed["milestones"] as unknown[]).length
+          : 0,
+        latest_event_type: row.event_type,
+        latest_ledger: row.ledger_sequence,
+        latest_timestamp: row.timestamp,
+      });
+    }
+  }
+
+  const allJobs = Array.from(jobMap.values());
+  const total = allJobs.length;
+  const safePage = Math.max(1, page);
+  const safeLimit = Math.max(1, limit);
+  const start = (safePage - 1) * safeLimit;
+  const jobs = allJobs.slice(start, start + safeLimit);
+
+  return { jobs, total, page: safePage, limit: safeLimit };
+}
