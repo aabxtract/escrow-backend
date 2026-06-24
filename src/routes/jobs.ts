@@ -10,6 +10,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
 import { getJobsByWallet } from "../indexer/db.js";
+import { jobContractRateLimit } from "../middleware/job-contract-rate-limit.js";
 
 const router = Router();
 const CONTRACT_ID = process.env.CONTRACT_ID || "";
@@ -67,7 +68,7 @@ router.get("/by-wallet/:address", (req: Request, res: Response) => {
 });
 
 // GET /api/jobs/:contractId - get job state
-router.get("/:contractId", async (req: Request, res: Response) => {
+router.get("/:contractId", jobContractRateLimit, async (req: Request, res: Response) => {
   try {
     const { contractId } = req.params;
     const contract = new Contract(contractId as string);
