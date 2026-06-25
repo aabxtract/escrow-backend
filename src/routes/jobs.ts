@@ -153,6 +153,12 @@ router.get(
 router.get("/:contractId/whitelist", async (req: Request, res: Response) => {
   try {
     const { contractId } = req.params;
+
+    if (!isValidStellarContractId(contractId as string)) {
+      sendError(res, 400, "contractId must be a valid Stellar contract address (C...)");
+      return;
+    }
+
     const contract = new Contract(contractId as string);
     const account = await server.getAccount(process.env.DEPLOYER_ADDRESS || "");
     const tx = new TransactionBuilder(account, {
@@ -165,34 +171,31 @@ router.get("/:contractId/whitelist", async (req: Request, res: Response) => {
 
     const result = await server.simulateTransaction(tx);
 
-    // Check if simulation resulted in an error
     if ("error" in result) {
-      // Check if it's the NotInitialized error (Error::NotInitialized = 2)
-      // The error from simulation will have a message indicating contract error #2
-      const errorMsg = result.error as string;
+      const errorMsg = String(result.error);
       if (errorMsg.includes("contract error #2") || errorMsg.includes("NotInitialized")) {
-        // Return empty tokens array for uninitialized contracts
-        res.json({ success: true, tokens: [] });
+        sendSuccess(res, { tokens: [] });
+        return;
       } else {
-        res.status(500).json({ success: false, error: errorMsg });
+        sendError(res, 500, errorMsg);
+        return;
       }
     } else if ("result" in result && result.result?.retval) {
-      // Handle Vec<Address> correctly by iterating (using type assertions)
       const tokens: string[] = [];
       const vec = result.result.retval as any;
 
-      // Since it's a Vec from the contract, it should have a map/forEach method
-      // like val.milestones() in parseJobFromResult
       if (typeof vec.forEach === "function") {
         vec.forEach((token: any) => tokens.push(token.toString()));
       }
-      res.json({ success: true, tokens });
+      sendSuccess(res, { tokens });
+      return;
     } else {
-      res.status(500).json({ success: false, error: "Failed to get whitelisted tokens" });
+      sendError(res, 500, "Failed to get whitelisted tokens");
+      return;
     }
   } catch (err: any) {
     console.error("Error in whitelist endpoint:", err);
-    res.status(500).json({ success: false, error: err.message });
+    sendError(res, 500, err.message);
   }
 });
 
