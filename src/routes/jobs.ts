@@ -18,6 +18,7 @@ import {
 import { sendError, sendSuccess } from "../utils/api-response.js";
 import { isValidStellarContractId } from "../utils/stellar.js";
 import { strictLimiter } from "../middleware/rateLimiter.js";
+import logger from "../utils/logger.js";
 
 const router = Router();
 const CONTRACT_ID = process.env.CONTRACT_ID || "";
@@ -83,7 +84,10 @@ router.get(
   async (req: Request, res: Response) => {
   const { contractId } = req.params;
 
+  logger.info("Fetching job", { contractId });
+
   if (!isValidStellarContractId(contractId as string)) {
+    logger.warn("Invalid contractId provided", { contractId });
     sendError(
       res,
       400,
@@ -96,6 +100,7 @@ router.get(
   if (requiredApiKey) {
     const providedKey = req.header("x-api-key");
     if (providedKey !== requiredApiKey) {
+      logger.warn("Unauthorized request", { contractId });
       sendError(res, 401, "Unauthorized");
       return;
     }
@@ -120,30 +125,37 @@ router.get(
         /not found|NotFound|contract not found/i.test(errorMsg) ||
         /contract error #1\b/i.test(errorMsg)
       ) {
+        logger.warn("Job not found", { contractId });
         sendError(res, 404, "Job not found");
         return;
       }
+      logger.error("Failed to fetch job", { contractId, error: errorMsg });
       sendError(res, 500, errorMsg);
       return;
     }
 
     const job = parseJobFromResult(result, contractId as string);
     if (!job) {
+      logger.warn("Job not found", { contractId });
       sendError(res, 404, "Job not found");
       return;
     }
 
+    logger.info("Job fetched successfully", { contractId, client: job.client, freelancer: job.freelancer, arbiter: job.arbiter, token: job.token, funded: job.funded, milestoneCount: job.milestones.length });
     sendSuccess(res, job);
   } catch (err: any) {
     const message = err?.message ?? "Internal server error";
     if (/unauthorized|authentication|401/i.test(message)) {
+      logger.error("Failed to fetch job", { contractId, error: message });
       sendError(res, 401, "Unauthorized");
       return;
     }
     if (/not found|404/i.test(message)) {
+      logger.error("Failed to fetch job", { contractId, error: message });
       sendError(res, 404, "Job not found");
       return;
     }
+    logger.error("Failed to fetch job", { contractId, error: message });
     sendError(res, 500, message);
   }
   }
