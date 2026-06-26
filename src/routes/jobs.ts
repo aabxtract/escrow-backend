@@ -89,13 +89,10 @@ router.get(
 
   logger.info("Fetching job", { contractId });
 
-  if (!isValidStellarContractId(contractId as string)) {
+  const validation = validateContractId(contractId);
+  if (!validation.valid) {
     logger.warn("Invalid contractId provided", { contractId });
-    sendError(
-      res,
-      400,
-      "contractId must be a valid Stellar contract address (C...)"
-    );
+    sendError(res, 400, validation.error!);
     return;
   }
 
@@ -173,12 +170,9 @@ router.get(
   async (req: Request, res: Response) => {
     const { contractId } = req.params;
 
-    if (!isValidStellarContractId(contractId as string)) {
-      sendError(
-        res,
-        400,
-        "contractId must be a valid Stellar contract address (C...)"
-      );
+    const validation = validateContractId(contractId);
+    if (!validation.valid) {
+      sendError(res, 400, validation.error!);
       return;
     }
 
