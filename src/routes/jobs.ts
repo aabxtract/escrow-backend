@@ -9,6 +9,7 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { Server } from "@stellar/stellar-sdk/rpc";
+import NodeCache from "node-cache";
 import { getJobsByWallet } from "../indexer/db.js";
 import {
   jobContractRateLimit,
@@ -27,6 +28,10 @@ const router = Router();
 const CONTRACT_ID = process.env.CONTRACT_ID || "";
 const RPC_URL = "https://soroban-testnet.stellar.org";
 const server = new Server(RPC_URL);
+
+const WHITELIST_TTL = parseInt(process.env.WHITELIST_CACHE_TTL_S || "60", 10);
+export const whitelistCache = new NodeCache({ stdTTL: WHITELIST_TTL, useClones: false });
+export function resetWhitelistCache(): void { whitelistCache.flushAll(); }
 
 // Helper function to parse job from RPC result
 const parseJobFromResult = (result: any, contractId: string) => {
@@ -186,6 +191,13 @@ router.get(
         }
       }
 
+      const cached = whitelistCache.get<string[]>(contractId);
+      if (cached !== undefined) {
+        logger.info("Whitelisted tokens served from cache", { contractId, tokenCount: cached.length });
+        sendSuccess(res, { tokens: cached });
+        return;
+      }
+
       const contract = new Contract(contractId as string);
       const account = await server.getAccount(process.env.DEPLOYER_ADDRESS || "");
       const tx = new TransactionBuilder(account, {
@@ -204,6 +216,7 @@ router.get(
         // The error from simulation will have a message indicating contract error #2
         const errorMsg = String(result.error);
         if (errorMsg.includes("contract error #2") || errorMsg.includes("NotInitialized")) {
+          whitelistCache.set(contractId, []);
           logger.info("Whitelisted tokens fetched successfully", { contractId, tokenCount: 0 });
           sendSuccess(res, { tokens: [] });
           return;
@@ -231,6 +244,7 @@ router.get(
         if (typeof vec.forEach === "function") {
           vec.forEach((token: any) => tokens.push(token.toString()));
         }
+        whitelistCache.set(contractId, tokens);
         logger.info("Whitelisted tokens fetched successfully", { contractId, tokenCount: tokens.length });
         sendSuccess(res, { tokens });
       } else {
@@ -305,7 +319,8 @@ router.post("/build-tx", strictLimiter, async (req: Request, res: Response) => {
     const prepared = await server.prepareTransaction(tx);
     res.json({ success: true, xdr: prepared.toXDR() });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    logger.error("Failed to build transaction", { error: err?.message });
+    res.status(500).json({ success: false, error: "Internal server error" });
   }
 });
 
