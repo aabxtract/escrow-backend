@@ -173,7 +173,7 @@ router.get(
   jobContractSecurityHeaders,
   jobWhitelistRateLimit,
   async (req: Request, res: Response) => {
-    const { contractId } = req.params;
+    const contractId = req.params.contractId as string;
 
     try {
       const validation = validateContractId(contractId);
